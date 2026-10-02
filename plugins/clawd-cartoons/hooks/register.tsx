@@ -85,26 +85,35 @@ async function request($: EngineInterface) {
   pending = undefined
   const kind = activity.kind
   if (!enabled || !turnActive || inFlight || (cache[kind]?.length ?? 0) >= cfg.variety) return
-  const now = await $.clock.now()
-  const wait = lastRequestAt + Math.max(cfg.minGapMs, backoffMs) - now
-  if (wait > 0) {
-    pending = $.clock.after(wait, () => void request($))
-    return
-  }
-  inFlight = true
-  lastRequestAt = now
-  stats.requests++
-  const columns = columnsSeen
-  const doing = activity.text
+  let columns = columnsSeen
+  let doing = activity.text
   try {
-    const r = await $.model.complete({
-      model: cfg.model,
-      system: SYSTEM,
-      prompt: buildPrompt({ columns, rows: cfg.rows, doing, recent, userPrompt, lastError, previousCaption: scene?.caption }),
-      maxTokens: cfg.maxTokens,
-      effort: cfg.effort,
-      timeoutMs: 120_000,
-    })
+    let r
+    try {
+      const now = await $.clock.now()
+      const wait = lastRequestAt + Math.max(cfg.minGapMs, backoffMs) - now
+      if (wait > 0) {
+        pending = $.clock.after(wait, () => void request($))
+        return
+      }
+      inFlight = true
+      lastRequestAt = now
+      stats.requests++
+      columns = columnsSeen
+      doing = activity.text
+      r = await $.model.complete({
+        model: cfg.model,
+        system: SYSTEM,
+        prompt: buildPrompt({ columns, rows: cfg.rows, doing, recent, userPrompt, lastError, previousCaption: scene?.caption }),
+        maxTokens: cfg.maxTokens,
+        effort: cfg.effort,
+        timeoutMs: 120_000,
+      })
+    } catch {
+      stats.failures++
+      backoffMs = Math.min(BACKOFF_MAX_MS, backoffMs ? backoffMs * 2 : BACKOFF_MIN_MS)
+      return
+    }
     if (!r.isAnswered) {
       stats.failures++
       if (r.reason === 'api-error') backoffMs = Math.min(BACKOFF_MAX_MS, backoffMs ? backoffMs * 2 : BACKOFF_MIN_MS)
@@ -114,20 +123,22 @@ async function request($: EngineInterface) {
     const u = r.usage
     stats.inputTokens += u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
     stats.outputTokens += u.output_tokens
-    const parsed = parseReply(r.text)
-    const error = parsed.error ?? tryScene(parsed.scene!, columns, cfg.rows, doing)
-    if (error) {
-      // Sent back with the next request so the model can fix it
+    try {
+      const parsed = parseReply(r.text)
+      const error = parsed.error ?? tryScene(parsed.scene!, columns, cfg.rows, doing)
+      if (error) {
+        // Sent back with the next request so the model can fix it
+        stats.failures++
+        lastError = error
+        return
+      }
+      lastError = undefined
+      remember($, kind, parsed.scene!)
+      if (enabled && activity.kind === kind) show($, parsed.scene)
+    } catch (e) {
       stats.failures++
-      lastError = error
-      return
+      lastError = e instanceof Error ? e.message : String(e)
     }
-    lastError = undefined
-    remember($, kind, parsed.scene!)
-    if (enabled && activity.kind === kind) show($, parsed.scene)
-  } catch {
-    stats.failures++
-    backoffMs = Math.min(BACKOFF_MAX_MS, backoffMs ? backoffMs * 2 : BACKOFF_MIN_MS)
   } finally {
     inFlight = false
   }
