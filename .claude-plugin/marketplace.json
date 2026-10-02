@@ -1,0 +1,14 @@
+{
+  "name": "clawd-cartoons",
+  "owner": {
+    "name": "falkoro"
+  },
+  "description": "Clawd cartoons: a Claude Code mod that turns the spinner into live cartoons of what the agent is doing",
+  "plugins": [
+    {
+      "name": "clawd-cartoons",
+      "source": "./plugins/clawd-cartoons",
+      "description": "Replaces the spinner with live cartoons of what the agent is doing, drawn by Sonnet"
+    }
+  ]
+}
