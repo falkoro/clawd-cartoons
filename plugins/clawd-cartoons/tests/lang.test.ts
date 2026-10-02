@@ -110,6 +110,19 @@ test('huge arrays and strings are refused', () => {
   expect(errorOf('let s = "x"; for (;;) s = `${s}${s}`')!.message).toMatch(/string longer than 10,000/)
 })
 
+test('an unterminated unicode escape is an error, not a hang', () => {
+  expect(errorOf('const s = "\\u{1F60"')!.message).toMatch(/unclosed \\u\{ escape/)
+  expect(errorOf('const s = `a\\u{1F60`')!.message).toMatch(/unclosed \\u\{ escape/)
+  expect(errorOf('const s = "\\')).toBeInstanceOf(SceneError)
+  expect(errorOf('const s = "\\u{1F60}"')).toBeUndefined()
+})
+
+test('join refuses an oversized result before building it', () => {
+  const e = errorOf('const s = "x".repeat(9000); const a = Array.from({ length: 9000 }, () => s); a.join("")')
+  expect(e).toBeInstanceOf(SceneError)
+  expect(errorOf('[1, 2, 3].join("-")')).toBeUndefined()
+})
+
 test('making too much in one frame is refused', () => {
   const e = errorOf(`function draw() { for (let i = 0; i < 100; i++) Array.from({ length: 5000 }) }`, 1)
   expect(e!.message).toMatch(/in one frame/)

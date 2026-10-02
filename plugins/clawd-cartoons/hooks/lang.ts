@@ -55,13 +55,15 @@ function tokenize(src: string, line = 1): Tok[] {
   let i = 0
   const n = src.length
   const escape = (): string => {
-    const c = src[i + 1]!
+    const c = src[i + 1]
+    if (c === undefined) fail('unclosed escape', line)
     i += 2
     if (c in ESCAPES) return ESCAPES[c]!
     if (c === 'x') return String.fromCharCode(parseInt(src.slice(i, (i += 2)), 16) || 0)
     if (c === 'u') {
       if (src[i] === '{') {
         const e = src.indexOf('}', i)
+        if (e < 0) fail('unclosed \\u{ escape', line)
         const s = src.slice(i + 1, e)
         i = e + 1
         return String.fromCodePoint(Math.min(0x10ffff, parseInt(s, 16) || 0))
@@ -1158,7 +1160,13 @@ export class Machine {
       case 'splice': return this.made(a.splice(num(x), y === undefined ? a.length : num(y), ...args.slice(2)))
       case 'indexOf': this.charge(a.length); return a.indexOf(x)
       case 'includes': this.charge(a.length); return a.includes(x)
-      case 'join': return this.str(a.map((v) => (v == null ? '' : this.toStr(v))).join(x === undefined ? ',' : String(x)))
+      case 'join': {
+        const items = a.map((v) => (v == null ? '' : this.toStr(v)))
+        const sep = x === undefined ? ',' : String(x)
+        const total = items.reduce((n, v) => n + v.length, 0) + sep.length * Math.max(0, items.length - 1)
+        if (total > LIMITS.stringLength) this.str('x'.repeat(LIMITS.stringLength + 1))
+        return this.str(items.join(sep))
+      }
       case 'reverse': return a.reverse()
       case 'at': return a.at(num(x))
       case 'fill': this.charge(a.length); return a.fill(x, y as number, args[2] as number)

@@ -125,6 +125,9 @@ async function request($: EngineInterface) {
     lastError = undefined
     remember($, kind, parsed.scene!)
     if (enabled && activity.kind === kind) show($, parsed.scene)
+  } catch {
+    stats.failures++
+    backoffMs = Math.min(BACKOFF_MAX_MS, backoffMs ? backoffMs * 2 : BACKOFF_MIN_MS)
   } finally {
     inFlight = false
   }
