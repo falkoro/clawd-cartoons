@@ -7,7 +7,7 @@ const USAGE = { input_tokens: 2000, output_tokens: 900, cache_read_input_tokens:
 
 // The engine beneath the plugin: a spinner line, a clock, a store, and a
 // model that answers with REPLY and counts its calls
-function engine(on: On, reply = REPLY, stored: Record<string, unknown> = {}) {
+function engine(on: On, reply = REPLY, stored: Record<string, unknown> = {}, broken = { on: false }) {
   const calls: { prompt: string; model: string; maxTokens?: number }[] = []
   const clock = mock.clock(on)
   mock.store(on, stored)
@@ -21,6 +21,7 @@ function engine(on: On, reply = REPLY, stored: Record<string, unknown> = {}) {
   on('ui.blit', () => ({ value: {} }))
   on('model.complete', (_$, e) => {
     calls.push({ prompt: e.prompt, model: e.model, maxTokens: e.maxTokens })
+    if (broken.on) throw new Error('boom')
     return { value: { isAnswered: true, text: reply, usage: USAGE } }
   })
   return { clock, calls }
@@ -146,4 +147,20 @@ test('turned off in the options, it never calls the model', { options: { enabled
   await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
   await clock.advance(60_000)
   expect(calls).toHaveLength(0)
+})
+
+test('a model call that throws is a failure with backoff, not an unhandled rejection', async ($, on) => {
+  const broken = { on: true }
+  const { clock, calls } = engine(on, REPLY, {}, broken)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as any)
+  await clock.advance(2000)
+  expect(calls).toHaveLength(1)
+  broken.on = false
+  await clock.advance(60_000)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as any)
+  await clock.advance(60_000)
+  expect(calls.length).toBeGreaterThan(1)
+  const raster = await (await $.ui.mount(SPINNER)).find({ type: 'Raster' })
+  expect(raster).toBeDefined()
 })
