@@ -86,15 +86,28 @@ test('pixel and disc paint half cells', () => {
 })
 
 test('clawd walks, blinks and faces both ways', () => {
-  const a = new Canvas(12, 3), b = new Canvas(12, 3), shut = new Canvas(12, 3), left = new Canvas(12, 3)
+  const a = new Canvas(16, 3), b = new Canvas(16, 3), shut = new Canvas(16, 3), left = new Canvas(16, 3)
   a.clawd(1, 0, 1, 0)
   b.clawd(1, 0, 1, 1)
   shut.clawd(1, 0, 1, 0, true)
   left.clawd(1, 0, -1, 0)
   expect(row(a, 0).trim().length > 0).toBe(true)
+  expect(row(a, 1)).toBe(' ' + '▀'.repeat(14) + ' ') // arms out, as on the banner
+  expect(cell(a, 1, 1).bg).toBe(DEFAULT) // each arm is one pixel tall
   expect(row(a, 2) === row(b, 2)).toBe(false) // the legs move
   expect(a.cells.join() === shut.cells.join()).toBe(false) // the eyes close
   expect(a.cells.join() === left.cells.join()).toBe(false) // the eyes look the other way
+})
+
+test('art paints pixels from a palette, and tag labels things', () => {
+  const c = new Canvas(10, 3)
+  expect(c.art(1, 0.5, ['r.b', 'rrr'], { r: '#f00', b: BLUE })).toBe(5)
+  expect(cell(c, 1, 0)).toEqual({ ch: '▄', fg: RED, bg: DEFAULT }) // .5 starts a pixel lower
+  expect(cell(c, 2, 1)).toEqual({ ch: '▀', fg: RED, bg: DEFAULT })
+  expect(cell(c, 3, 0).fg).toBe(BLUE)
+  expect(cell(c, 2, 0).ch).toBe(' ') // '.' is see-through
+  c.tag(0, 2, 'cart.ts')
+  expect(row(c, 2)).toBe('[cart.ts] ')
 })
 
 test('say draws a bubble that types out', () => {
@@ -106,6 +119,17 @@ test('say draws a bubble that types out', () => {
   c.clear()
   c.say('hi there', 0, 0, 2)
   expect(row(c, 1)).toMatch(/^│ hi {7}│/)
+})
+
+test('the bubble steps aside rather than cover Clawd', () => {
+  const c = new Canvas(60, 6)
+  c.clawd(4, 2, 1, 0)
+  c.say('hello there', 4, 0)
+  expect(row(c, 1)).toMatch(/^ {19}│ hello there │/)
+  c.clear()
+  c.clawd(44, 2, 1, 0)
+  c.say('hello there', 44, 0)
+  expect(row(c, 1)).toMatch(/^ {28}│ hello there │ {17}$/)
 })
 
 test('cells encode as the Raster expects', () => {
@@ -122,6 +146,27 @@ test('a reply parses into a scene', () => {
   expect(scene!.caption).toBe('x')
   expect(scene!.actors[0]).toMatchObject({ clawd: true, x: 3, vx: 4, wrap: true })
   expect(scene!.code).toMatch(/function draw/)
+})
+
+test('pixel actors keep their palette and label', () => {
+  const { scene } = parseReply(JSON.stringify({
+    actors: [{ pix: ['GG', 'GG'], palette: { G: '#00ff00', bad: '#fff', X: 'nope' }, label: 'cart.ts', x: 2, y: 2, vx: 0 }],
+  }))
+  expect(scene!.actors[0]).toMatchObject({ pix: ['GG', 'GG'], palette: { G: '#00ff00' }, label: 'cart.ts' })
+  const c = new SceneRunner(scene!, 20, 4).draw(0, '')
+  expect(cell(c, 2, 2)).toEqual({ ch: '▀', fg: 0x00ff00, bg: 0x00ff00 })
+  expect(row(c, 1)).toMatch(/^ {2}\[cart\.ts\]/) // the label sits above
+})
+
+test('a keep reply changes only the line, which types out again', () => {
+  expect(parseReply('{"keep": true, "say": {"text": "Still here.", "x": 1, "y": 0}}')).toEqual({ keep: { text: 'Still here.', x: 1, y: 0 } })
+  expect(parseReply('{"keep": true}').error).toMatch(/needs "say"/)
+  const { scene } = parseReply(JSON.stringify({ say: { text: 'First line.', x: 0, y: 0 } }))
+  const r = new SceneRunner(scene!, 30, 4)
+  expect(row(r.draw(5, ''), 1)).toMatch(/First line\./)
+  scene!.say = { text: 'Second line.', x: 0, y: 0 }
+  expect(row(r.draw(5, ''), 1)).not.toMatch(/Second/)
+  expect(row(r.draw(6, ''), 1)).toMatch(/Second line\./)
 })
 
 test('a reply that is only code is a scene', () => {
@@ -182,6 +227,8 @@ test('the example in the prompt runs cleanly', () => {
   const json = /```json\n([\s\S]*?)```/.exec(SYSTEM)![1]!
   const { scene } = parseReply('```json\n' + json + '```\n```js\n' + code + '```')
   expect(tryScene(scene!, 80, 8, 'running the tests')).toBeUndefined()
+  const keep = /A kept scene[^\n]*\n(.*)/.exec(SYSTEM)![1]!
+  expect(parseReply(keep).keep).toBeDefined()
 })
 
 test('a full-width shader stays well inside a 20 fps frame', () => {

@@ -104,18 +104,22 @@ export function seeded(seed: number): () => number {
   }
 }
 
-// The crab, as pixels two to a cell: C body, E eye. Ten columns, three rows.
-const CRAB_TOP = ['C........C', 'CC.CCCC.CC', '.CCCCCCCC.', '.CC.CC.CC.', '..CCCCCC..']
-const CRAB_LEGS = ['.C.C..C.C.', 'C.C....C.C']
-const CRAB_BODY = 0xf2785c
-const CRAB_EYE = 0x241b1b
-export const CLAWD_W = 10
+// Clawd as on the Claude Code banner, two pixels to a cell: fourteen columns
+// with the arms out, three rows with the legs; the eyes are drawn on top
+const CLAWD_ROWS = ['..BBBBBBBBBB..', '..BBBBBBBBBB..', 'BBBBBBBBBBBBBB', '..BBBBBBBBBB..']
+const CLAWD_LEGS = [['...B.B..B.B...', '...B.B..B.B...'], ['...B.B..B.B...', '..B...BB...B..']]
+const CLAWD_BODY = 0xd77757
+const CLAWD_EYE = 0x1e1414
+export const CLAWD_W = 14
 export const CLAWD_H = 3
+
+const TAG_BG = 0x1c1c26
 
 export class Canvas {
   readonly cells: Uint32Array
   readonly w: number
   readonly h: number
+  private clawdAt?: { x: number; y: number } // where Clawd was last drawn, so the bubble can stay clear
   constructor(w: number, h: number) {
     this.w = w
     this.h = h
@@ -124,6 +128,7 @@ export class Canvas {
   }
 
   clear() {
+    this.clawdAt = undefined
     for (let i = 0; i < this.cells.length; i += 3) {
       this.cells[i] = SPACE
       this.cells[i + 1] = DEFAULT
@@ -233,13 +238,45 @@ export class Canvas {
 
   clawd(x: number, y: number, facing = 1, stride = 0, blink = false) {
     x = Math.floor(x)
-    const py0 = Math.floor(y) * 2
-    const eyeShift = facing < 0 ? -1 : facing > 0 ? 1 : 0
-    const rows = [...CRAB_TOP, CRAB_LEGS[Math.abs(Math.floor(stride)) % 2]!]
+    const py0 = Math.round(y * 2)
+    this.clawdAt = { x, y: py0 >> 1 }
+    const shift = facing < 0 ? -1 : facing > 0 ? 1 : 0
+    const rows = [...CLAWD_ROWS, ...CLAWD_LEGS[Math.abs(Math.floor(stride)) % 2]!]
     rows.forEach((row, dy) => {
-      for (let dx = 0; dx < row.length; dx++) if (row[dx] === 'C') this.pixel(x + dx, py0 + dy, CRAB_BODY)
+      for (let dx = 0; dx < row.length; dx++) if (row[dx] === 'B') this.pixel(x + dx, py0 + dy, CLAWD_BODY)
     })
-    if (!blink) for (const ex of [3, 6]) this.pixel(x + ex + eyeShift, py0 + 3, CRAB_EYE)
+    // The eyes look where Clawd walks, and close to one pixel on a blink
+    for (const ex of [4, 9]) for (let dy = blink ? 2 : 1; dy <= 2; dy++) this.pixel(x + ex + shift, py0 + dy, CLAWD_EYE)
+  }
+
+  // Pixel art, two pixels to a cell: each character of a row is one pixel in
+  // the palette's color for it; '.' and ' ' are see-through. y counts cells
+  // and may end in .5 to start a pixel lower.
+  art(x: number, y: number, rows: unknown, palette?: unknown): number {
+    const list = (Array.isArray(rows) ? rows : String(rows ?? '').split('\n')).slice(0, this.h * 2 + 8)
+    const pal = palette && typeof palette === 'object' ? (palette as Record<string, unknown>) : {}
+    const colors = new Map<string, number>()
+    const x0 = Math.floor(x), py0 = Math.round(y * 2)
+    let n = 0
+    list.forEach((row, dy) => {
+      let dx = 0
+      for (const ch of String(row).slice(0, this.w + 64)) {
+        if (ch !== '.' && ch !== ' ') {
+          let c = colors.get(ch)
+          if (c === undefined) colors.set(ch, (c = color(pal[ch] ?? '#ffffff', DEFAULT)))
+          this.pixel(x0 + dx, py0 + dy, c)
+          n++
+        }
+        dx++
+      }
+    })
+    return n
+  }
+
+  // A label for a real thing in the scene: [name] in its color on a dark chip
+  tag(x: number, y: number, label: unknown, fg?: unknown, bg?: unknown) {
+    const s = String(label ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)
+    if (s) this.text(x, y, `[${s}]`, fg ?? 0xc8c8d8, bg ?? TAG_BG)
   }
 
   // A speech bubble whose top-left corner is at x, y; `shown` limits how much
@@ -261,8 +298,14 @@ export class Canvas {
     lines.splice(3)
     const inner = Math.max(...lines.map((l) => l.length))
     const bw = inner + 4, bh = lines.length + 2
-    const bx = Math.max(0, Math.min(Math.floor(x), this.w - bw))
+    let bx = Math.max(0, Math.min(Math.floor(x), this.w - bw))
     const by = Math.max(0, Math.min(Math.floor(y), this.h - bh))
+    // Never over Clawd: step aside to whichever side has room
+    const k = this.clawdAt
+    if (k && bx < k.x + CLAWD_W && k.x < bx + bw && by < k.y + CLAWD_H + 1 && k.y < by + bh) {
+      if (k.x + CLAWD_W + 1 + bw <= this.w) bx = k.x + CLAWD_W + 1
+      else if (k.x - bw - 1 >= 0) bx = k.x - bw - 1
+    }
     const edge = 0xd8d0c8, ink = 0xffffff, paper = 0x3a2424
     this.fill(bx, by, bw, bh, paper)
     for (let i = 1; i < bw - 1; i++) {

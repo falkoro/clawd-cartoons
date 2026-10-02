@@ -1,13 +1,24 @@
 // A scene is what the model sends back: a few declarative layers (sky,
-// ground, particles, sliding actors, a speech bubble) and, when the idea is
-// more than sliding, a program in the scene language that paints between the
-// background and the actors.
+// ground, particles, sliding actors and props, Clawd's speech bubble) and,
+// when the idea is more than sliding, a program in the scene language that
+// paints between the background and the actors.
 
 import { Canvas, CLAWD_H, CLAWD_W, color, hsl, mix, noise, noise2, rgb, seeded, smoothstep } from './canvas'
 import { Machine, SceneError } from './lang'
 
 export type Particle = { glyph: string; color: string | number; count: number; vx: number; vy: number }
-export type Actor = { art?: string; clawd?: boolean; x: number; y?: number; vx: number; color?: string | number; wrap: boolean }
+export type Actor = {
+  art?: string
+  pix?: string[]
+  palette?: Record<string, string | number>
+  label?: string
+  clawd?: boolean
+  x: number
+  y?: number
+  vx: number
+  color?: string | number
+  wrap: boolean
+}
 export type Scene = {
   caption: string
   sky?: [string | number, string | number]
@@ -37,8 +48,9 @@ const col = (v: unknown): string | number | undefined => {
 }
 
 // Pulls a scene out of the model's reply: a ```json block (or the outermost
-// braces) and an optional ```js block for the code
-export function parseReply(text: string): { scene?: Scene; error?: string } {
+// braces) and an optional ```js block for the code. {"keep": true, "say": ...}
+// keeps the scene on screen and only changes what Clawd says.
+export function parseReply(text: string): { scene?: Scene; keep?: Scene['say']; error?: string } {
   const fence = (lang: string) => new RegExp('```' + lang + '\\s*\\n([\\s\\S]*?)```', 'i').exec(text)?.[1]
   let raw: any = {}
   const start = text.indexOf('{'), end = text.lastIndexOf('}')
@@ -53,6 +65,7 @@ export function parseReply(text: string): { scene?: Scene; error?: string } {
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) raw = {}
   const scene = normalize(raw)
+  if (raw.keep === true && !codeFence) return scene.say ? { keep: scene.say } : { error: 'a keep reply needs "say"' }
   const code = codeFence ?? str(raw.code, MAX_CODE + 1)
   if (code?.trim()) {
     if (code.length > MAX_CODE) return { error: `the code is ${code.length} characters; keep it under ${MAX_CODE}` }
@@ -88,9 +101,20 @@ function normalize(raw: any): Scene {
   for (const a of Array.isArray(raw.actors) ? raw.actors.slice(0, 8) : []) {
     if (!a || typeof a !== 'object') continue
     const art = str(a.art, 400)
-    if (!a.clawd && !art) continue
+    const pix = Array.isArray(a.pix) ? a.pix.slice(0, 32).map((r: unknown) => String(r).slice(0, 80)) : undefined
+    if (!a.clawd && !art && !pix?.length) continue
+    const palette: Record<string, string | number> = {}
+    if (a.palette && typeof a.palette === 'object') {
+      for (const [k, v] of Object.entries(a.palette).slice(0, 16)) {
+        const c = col(v)
+        if (k.length === 1 && c !== undefined) palette[k] = c
+      }
+    }
     scene.actors.push({
-      art: a.clawd ? undefined : art,
+      art: a.clawd || pix?.length ? undefined : art,
+      pix: a.clawd ? undefined : pix,
+      palette: pix ? palette : undefined,
+      label: str(a.label, 40),
       clawd: !!a.clawd,
       x: num(a.x, 0),
       y: a.y === undefined ? undefined : num(a.y, 0),
@@ -115,6 +139,8 @@ export class SceneRunner {
   error?: string
   private machine?: Machine
   private frames = 0
+  private said?: string
+  private saidAt = 0
   private readonly stars: { x: number; y: number }[][]
 
   constructor(scene: Scene, w: number, h: number) {
@@ -167,6 +193,14 @@ export class SceneRunner {
         charge(60)
         c.clawd(x, y, facing, stride, blink)
       },
+      art: (x: number, y: number, rows: unknown, palette?: unknown) => {
+        charge(10)
+        charge(c.art(x, y, rows, palette))
+      },
+      tag: (x: number, y: number, label: unknown, fg?: unknown, bg?: unknown) => {
+        charge(20)
+        c.tag(x, y, label, fg, bg)
+      },
       say: (s: unknown, x = 2, y = 0) => {
         charge(150)
         c.say(s, x, y)
@@ -206,9 +240,9 @@ export class SceneRunner {
       }
     }
     for (const a of scene.actors) {
-      const lines = a.art?.split('\n') ?? []
+      const lines = a.pix ?? a.art?.split('\n') ?? []
       const aw = a.clawd ? CLAWD_W : Math.max(1, ...lines.map((l) => l.length))
-      const ah = a.clawd ? CLAWD_H : lines.length
+      const ah = a.clawd ? CLAWD_H : a.pix ? Math.ceil(lines.length / 2) : lines.length
       let x = a.x + a.vx * t
       let facing = Math.sign(a.vx)
       if (a.wrap) {
@@ -222,9 +256,19 @@ export class SceneRunner {
       }
       const y = a.y ?? groundRow - ah
       if (a.clawd) c.clawd(x, y, facing, a.vx ? Math.floor(t * 8) : 0, t % 4 > 3.85)
+      else if (a.pix) c.art(x, y, a.pix, a.palette)
       else c.sprite(x, y, a.art, a.color ?? '#ffffff')
+      if (a.label) c.tag(x, y - 1, a.label, a.color)
     }
-    if (scene.say) c.say(scene.say.text.replaceAll('{doing}', doing), scene.say.x, scene.say.y, t * SAY_CPS)
+    if (scene.say) {
+      // A new line (a kept scene's, or a changed {doing}) types out again
+      const text = scene.say.text.replaceAll('{doing}', doing)
+      if (text !== this.said) {
+        if (this.said !== undefined) this.saidAt = t
+        this.said = text
+      }
+      c.say(text, scene.say.x, scene.say.y, (t - this.saidAt) * SAY_CPS)
+    }
     this.frames++
     return c
   }
