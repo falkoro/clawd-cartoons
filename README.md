@@ -211,9 +211,7 @@ CI runs the same commands.
 
 ## Contributing
 
-Feature requests and pull requests are welcome. Open an issue with an idea for a scene, a step Clawd acts out badly, or a bug. A screenshot of the panel helps.
-
-For a pull request, run `claude plugin test plugins/clawd-cartoons` and `claude plugin validate plugins/clawd-cartoons --strict` first. CI runs the same two commands. A prompt change is easiest to judge with before-and-after screenshots of a panel from a real session.
+Feature requests and pull requests are welcome. Open an issue with an idea for a scene, a step Clawd acts out badly, or a bug. [CONTRIBUTING.md](CONTRIBUTING.md) covers pull requests, the checks they need, and where the code is.
 
 ## License
 
