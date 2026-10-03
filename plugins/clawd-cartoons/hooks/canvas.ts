@@ -13,7 +13,7 @@ const FULL = 0x2588 // █
 // (emoji, CJK, combining marks) becomes '?' so the tree is never refused.
 const GLYPH_RANGES: [number, number][] = [
   [0x20, 0x7e], [0xa1, 0x24f], [0x370, 0x3ff], [0x2010, 0x205e], [0x2190, 0x21ff],
-  [0x2200, 0x22ff], [0x2500, 0x25ff], [0x2600, 0x2605], [0x2660, 0x266f], [0x2713, 0x2718], [0x2800, 0x28ff],
+  [0x2200, 0x22ff], [0x2500, 0x25ff], [0x2600, 0x2605], [0x2660, 0x266f], [0x2713, 0x2718], [0x2726, 0x2727], [0x2800, 0x28ff],
 ]
 
 export function glyph(ch: unknown): number {
@@ -279,12 +279,26 @@ export class Canvas {
     if (s) this.text(x, y, `[${s}]`, fg ?? 0xc8c8d8, bg ?? TAG_BG)
   }
 
-  // A speech bubble whose top-left corner is at x, y; `shown` limits how much
-  // of the text has typed out so far
+  // A label in a frame, three rows tall: the box's top-left corner is at x, y
+  box(x: number, y: number, label: unknown, fg?: unknown) {
+    const s = String(label ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)
+    if (!s) return
+    const f = color(fg ?? 0xc8c8d8, DEFAULT), w = s.length + 4
+    x = Math.floor(x)
+    y = Math.floor(y)
+    this.text(x, y, `┌${'─'.repeat(w - 2)}┐`, f)
+    this.text(x, y + 1, `│ ${s} │`, f)
+    this.text(x, y + 2, `└${'─'.repeat(w - 2)}┘`, f)
+  }
+
+  // Clawd's speech bubble; `shown` limits how much of the text has typed out
+  // so far. With Clawd in the frame it hangs beside him, level with his head,
+  // on the side x points to (the other side if that one has no room), joined
+  // to his arm by a tail; otherwise its top-left corner is at x, y.
   say(text: unknown, x: number, y: number, shown = Infinity) {
     const words = String(text).replace(/\s+/g, ' ').trim()
     if (!words) return
-    const maxW = Math.max(4, Math.min(34, this.w - 4))
+    const maxW = Math.max(4, Math.min(28, this.w - 4))
     const lines: string[] = []
     let cur = ''
     for (const word of words.split(' ')) {
@@ -298,29 +312,41 @@ export class Canvas {
     lines.splice(3)
     const inner = Math.max(...lines.map((l) => l.length))
     const bw = inner + 4, bh = lines.length + 2
-    let bx = Math.max(0, Math.min(Math.floor(x), this.w - bw))
-    const by = Math.max(0, Math.min(Math.floor(y), this.h - bh))
-    // Never over Clawd: step aside to whichever side has room
+    let bx = Math.floor(x), by = Math.floor(y)
+    let tail: { x: number; y: number; side: number } | undefined
     const k = this.clawdAt
-    if (k && bx < k.x + CLAWD_W && k.x < bx + bw && by < k.y + CLAWD_H + 1 && k.y < by + bh) {
-      if (k.x + CLAWD_W + 1 + bw <= this.w) bx = k.x + CLAWD_W + 1
-      else if (k.x - bw - 1 >= 0) bx = k.x - bw - 1
+    if (k) {
+      const right = k.x + CLAWD_W + 1, left = k.x - bw - 1
+      const fitsRight = right + bw <= this.w, fitsLeft = left >= 0
+      if (fitsRight || fitsLeft) {
+        const onRight = fitsRight && (!fitsLeft || bx + bw / 2 > k.x + CLAWD_W / 2)
+        bx = onRight ? right : left
+        by = k.y
+        tail = { x: onRight ? k.x + CLAWD_W : k.x - 1, y: k.y + 1, side: onRight ? -1 : 1 }
+      }
     }
-    const edge = 0xd8d0c8, ink = 0xffffff, paper = 0x3a2424
-    this.fill(bx, by, bw, bh, paper)
+    bx = Math.max(0, Math.min(bx, this.w - bw))
+    by = Math.max(0, Math.min(by, this.h - bh))
+    const edge = 0xd8b4bc, ink = 0xffffff, paper = 0x230a0e
+    this.fill(bx + 1, by + 1, bw - 2, bh - 2, paper)
     for (let i = 1; i < bw - 1; i++) {
-      this.set(bx + i, by, 0x2500, edge, paper)
-      this.set(bx + i, by + bh - 1, 0x2500, edge, paper)
+      this.set(bx + i, by, 0x2500, edge, DEFAULT)
+      this.set(bx + i, by + bh - 1, 0x2500, edge, DEFAULT)
     }
     for (let j = 1; j < bh - 1; j++) {
-      this.set(bx, by + j, 0x2502, edge, paper)
-      this.set(bx + bw - 1, by + j, 0x2502, edge, paper)
+      this.set(bx, by + j, 0x2502, edge, DEFAULT)
+      this.set(bx + bw - 1, by + j, 0x2502, edge, DEFAULT)
     }
-    this.set(bx, by, 0x256d, edge, paper)
-    this.set(bx + bw - 1, by, 0x256e, edge, paper)
-    this.set(bx, by + bh - 1, 0x2570, edge, paper)
-    this.set(bx + bw - 1, by + bh - 1, 0x256f, edge, paper)
-    this.set(bx + 2, by + bh - 1, 0x252c, edge, paper)
+    this.set(bx, by, 0x250c, edge, DEFAULT)
+    this.set(bx + bw - 1, by, 0x2510, edge, DEFAULT)
+    this.set(bx, by + bh - 1, 0x2514, edge, DEFAULT)
+    this.set(bx + bw - 1, by + bh - 1, 0x2518, edge, DEFAULT)
+    if (tail) {
+      // Clawd's arm row, kept on the bubble's side wall
+      const ty = Math.max(by + 1, Math.min(tail.y, by + bh - 2))
+      this.set(tail.side < 0 ? bx : bx + bw - 1, ty, tail.side < 0 ? 0x2524 : 0x251c, edge, DEFAULT)
+      this.set(tail.x, ty, 0x2500, edge, DEFAULT)
+    }
     let left = Math.floor(shown)
     lines.forEach((l, j) => {
       const part = l.slice(0, Math.max(0, left))

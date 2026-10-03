@@ -52,6 +52,7 @@ let backoffMs = 0
 let pending: Timer | undefined
 let tick: Timer | undefined
 const mounted = new Set<string>()
+let wasRefused = false
 const stats = { requests: 0, failures: 0, kept: 0, inputTokens: 0, outputTokens: 0 }
 
 function show($: EngineInterface, next: Scene | undefined) {
@@ -181,14 +182,22 @@ const gist = (s: string) => {
 }
 
 async function frame($: EngineInterface) {
-  if (!runner || !mounted.size) return
+  if (!scene || !mounted.size) return
+  // A new scene starts here, at the width the spinner last drew, rather than
+  // waiting for the spinner to redraw
+  runner ??= new SceneRunner(scene, columnsSeen, cfg.rows)
   sceneTime += FRAME_MS / 1000
   const cells = runner.draw(sceneTime, activity.text).base64()
   // The program broke after it was shown: say why with the next request
   if (runner.error && runner.error !== lastError) lastError = runner.error
   for (const id of mounted) {
     const r = await $.ui.blit({ requestId: id, key: 'cartoon', cells })
-    if (r && 'deny' in r && r.deny) mounted.delete(id)
+    // Refused while the spinner is hidden, behind a permission prompt say.
+    // It comes back without a redraw, so the frames go on; a redraw is asked
+    // for once, in case it came back without the Raster
+    const isRefused = !!(r && 'deny' in r && r.deny)
+    if (isRefused && !wasRefused) $.ui.invalidate('ui.render')
+    wasRefused = isRefused
   }
 }
 

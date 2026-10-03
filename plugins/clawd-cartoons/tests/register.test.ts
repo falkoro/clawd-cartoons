@@ -7,10 +7,12 @@ const KEEP = '{"keep": true, "say": {"text": "Still roasting cart.ts.", "x": 2, 
 const USAGE = { input_tokens: 2000, output_tokens: 900, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 // The engine beneath the plugin: a spinner line, a clock, tools that answer
-// `output`, and a model that answers with the replies in turn (the last one
-// over and over) and counts its calls
+// `output`, a screen that counts blits and redraws (refusing blits while
+// `screen.deny`), and a model that answers with the replies in turn (the last
+// one over and over) and counts its calls
 function engine(on: On, replies: string | string[] = REPLY, broken = { on: false }, output = { text: 'ok', isError: false }) {
   const calls: { prompt: string; model: string; maxTokens?: number }[] = []
+  const screen = { deny: false, blits: 0, redraws: 0 }
   const clock = mock.clock(on)
   const list = Array.isArray(replies) ? replies : [replies]
   on('session.start', () => ({ cwd: '/work' }))
@@ -19,14 +21,14 @@ function engine(on: On, replies: string | string[] = REPLY, broken = { on: false
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => ({ result: output.text, text: output.text, isError: output.isError }) as any)
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['Working…'] }))
-  on('ui.invalidate', () => ({ value: undefined }))
-  on('ui.blit', () => ({ value: {} }))
+  on('ui.invalidate', () => (screen.redraws++, { value: undefined }))
+  on('ui.blit', () => (screen.blits++, { value: screen.deny ? { deny: 'not mounted' } : {} }))
   on('model.complete', (_$, e) => {
     calls.push({ prompt: e.prompt, model: e.model, maxTokens: e.maxTokens })
     if (broken.on) throw new Error('boom')
     return { value: { isAnswered: true, text: list[Math.min(calls.length, list.length) - 1]!, usage: USAGE } }
   })
-  return { clock, calls }
+  return { clock, calls, screen }
 }
 
 const SPINNER = {
@@ -178,4 +180,38 @@ test('a model call that throws is a failure with backoff, not an unhandled rejec
   expect(calls.length).toBeGreaterThan(1)
   const raster = await (await $.ui.mount(SPINNER)).find({ type: 'Raster' })
   expect(raster).toBeDefined()
+})
+
+test('a refused blit asks for a redraw, so a spinner mounted again keeps moving', async ($, on) => {
+  const { clock, screen } = engine(on)
+  await start($)
+  const spinner = await $.ui.mount(SPINNER)
+  await clock.advance(200)
+  expect(screen.blits).toBeGreaterThan(0)
+  // A permission prompt takes the spinner away, and its blits are refused
+  await spinner.unmount()
+  screen.deny = true
+  const before = screen.redraws
+  await clock.advance(200)
+  expect(screen.redraws).toBeGreaterThan(before)
+  // Back again, the redraw mounts it and the frames carry on
+  screen.deny = false
+  await $.ui.mount(SPINNER)
+  const blits = screen.blits
+  await clock.advance(500)
+  expect(screen.blits).toBeGreaterThan(blits)
+})
+
+test('a new panel goes up at once, without waiting for the spinner to redraw', async ($, on) => {
+  const { clock, calls, screen } = engine(on)
+  await start($)
+  await $.ui.mount(SPINNER)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as any)
+  await clock.advance(2000)
+  expect(calls).toHaveLength(1)
+  const blits = screen.blits
+  const redraws = screen.redraws
+  await clock.advance(500)
+  expect(screen.redraws).toBe(redraws)
+  expect(screen.blits).toBeGreaterThan(blits)
 })

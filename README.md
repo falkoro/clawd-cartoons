@@ -2,11 +2,13 @@
 
 A Claude Code mod that adds a live cartoon under the spinner, drawn by Sonnet while the agent works.
 
-While Claude works, a strip under the spinner line shows Clawd, the coral Claude Code mascot, acting out and narrating each step like a comic strip. Clawd reads the files off a shelf, chases the bug the test just caught, and cheers when the tests go green. Each line names the real file, test or result: "Cat-ing every shelf. Test says 9.99, wanted 10. Someone rounded badly."
+While Claude works, a strip under the spinner line shows Clawd, the coral Claude Code mascot, acting out and narrating each step like a comic strip. Clawd reads the files off a shelf, chases the bug the test just caught, and cheers when the tests go green. Each line names the real file, test or result: "Expected 10, got 9.99. THIRD rounds wrong."
 
 Each panel is written by Sonnet 5.5 as a few layers, pixel-art props and a little program. It runs at 20 frames a second in a sandboxed interpreter inside the mod.
 
 ![Clawd narrating a real Claude Code turn: reading the files, finding a rounding bug, and fixing it](docs/demo.gif)
+
+The same turn as an [MP4](docs/demo.mp4).
 
 Inspired by [Anshu's tweet](https://x.com/anshuc/status/2105773281936650247) (@anshuc), which showed the idea: "I vibe-coded my own spinner that watches what the main agent is doing and uses Sonnet 5.5 to turn it into little cartoons in real time". Anshu didn't share the code, so this is an independent implementation written from the Claude Code mod docs. Thanks for the idea!
 
@@ -57,12 +59,12 @@ The `/cartoons` command shows what the mod has done this session: the requests, 
 4. **Checking.** The reply is parsed, and a new scene runs for a few test frames before it is shown. A scene that crashes or runs out of steps is never shown. Its error is sent back to the model with the next request.
 5. **Drawing.** The Spinner render site (`ui.render` on `Spinner`) keeps the normal spinner line and adds a `Raster` below it.
    - A 50 ms timer draws each frame and repaints the Raster in place with `$.ui.blit`, without re-rendering the transcript.
-   - A new line types out in the speech bubble, and the bubble steps aside rather than cover Clawd.
+   - A new line types out in the speech bubble, which hangs off Clawd's side, level with his head, joined to his arm by a tail.
    - The terminal is the only surface with a Raster. On the desktop, and when cartoons are off, the spinner is left alone.
 
 Nothing is saved between turns or sessions: every panel is drawn for the step it shows.
 
-![A panel: Clawd reads the files off three shelves while the test result, 9.99, sits on the floor](docs/panel-bug.png)
+![A panel: Clawd faces the bug in discount.js, a green pixel critter, with the failing result, 9.99 ≠ 10, tagged beside it](docs/panel-bug.png)
 
 ### What a scene is
 
@@ -71,38 +73,36 @@ The model replies with a JSON block and, usually, a program:
 ````
 ```json
 {
-  "caption": "running the tests by the campfire",
-  "sky": ["#0b1026", "#2a1830"],
-  "ground": { "color": "#4a3a2a", "glyph": "▁" },
-  "particles": [{ "glyph": "·", "color": "#8fa3ff", "count": 14, "vx": -1, "vy": 0 }],
+  "caption": "test crates through the scanner",
+  "particles": [{ "glyph": "✦", "color": "#ffd75f", "count": 4, "vx": 0, "vy": 0 }],
   "actors": [
-    { "clawd": true, "x": 2, "vx": 3, "wrap": false },
-    { "pix": ["..RR..", "RRRRRR", ".W..W."], "palette": { "R": "#e05050", "W": "#dddddd" },
-      "label": "discount.test.ts", "x": 40, "y": 5, "vx": -4 }
+    { "clawd": true, "x": 34, "y": 3.5, "vx": 0 },
+    { "pix": ["SSSSSSSS", "S.rrrr.S", "S......S", "S......S"], "palette": { "S": "#8a8aa8", "r": "#ff5c5c" },
+      "label": "test_schedule.py", "x": 52, "y": 4, "vx": 0 }
   ],
-  "say": { "text": "discount.test.ts fails. The rounding again.", "x": 18, "y": 0 }
+  "say": { "text": "Crate two: test_schedule.py. The clocks agree now.", "x": 0, "y": 0 }
 }
 ```
 ```js
-function draw(t) { /* paint the fire */ }
+function draw(t) { /* the ceiling, the rubble, and the belt with its crates */ }
 ```
 ````
 
 Layers draw in this order:
 
-1. sky gradient
+1. sky gradient, usually left out so the terminal's own background shows through
 2. ground row
 3. drifting particles
 4. **the program**
 5. sliding actors: Clawd (who walks and blinks on its own), ASCII art, or pixel art from `pix` rows and a `palette`, each with an optional `[label]` tag above it
 6. the speech bubble
 
-In the bubble, `{doing}` becomes the current step, such as "running npm test".
+The bubble hangs beside Clawd on the side `say.x` points to, or on the other side when that one has no room. With no Clawd on screen, `x` and `y` place its corner. In the bubble, `{doing}` becomes the current step, such as "running npm test".
 
 A reply that keeps the scene is only the line:
 
 ```json
-{ "keep": true, "say": { "text": "discount.test.ts is green. The bug left in a tow truck.", "x": 1, "y": 0 } }
+{ "keep": true, "say": { "text": "All green. The scanner waves every crate through.", "x": 0, "y": 0 } }
 ```
 
 ### The scene language
@@ -137,9 +137,10 @@ Programs are written in a small subset of JavaScript and run by a tree-walking i
 | `disc(x, y, r, color)` | a solid disc in half-cell pixels, so it looks round |
 | `pixel(x, py, color)` | one half-cell pixel; `py` counts half rows |
 | `art(x, y, rows, palette)` | pixel art: one character per pixel, two pixel rows per cell, colors from the palette; `.` and spaces are see-through |
-| `tag(x, y, label, fg?, bg?)` | a `[label]` tag, for naming a prop after a file, test or function |
+| `box(x, y, label, fg?)` | the label in a frame three rows tall, for naming a prop after a file, test or function |
+| `tag(x, y, label, fg?, bg?)` | a one-row `[label]` chip, for a value or an error word |
 | `clawd(x, y, facing, stride, blink)` | Clawd |
-| `say(text, x, y)` | a speech bubble |
+| `say(text, x, y)` | Clawd's speech bubble, placed as above |
 
 Every cell takes its own foreground and background color, so a program can paint full shaders.
 
@@ -178,7 +179,7 @@ They go through Claude Code's own API client, under the same account and model t
 
 ## Cost
 
-Each panel is one request. In the demo above, a 24 s turn made 3 requests, with about 3,400 input tokens (mostly the fixed instructions) and 800 output tokens each. `max_reply_tokens` caps each reply.
+Each panel is one request. In the demo above, a 30 s turn made 4 requests, with about 3,900 input tokens (mostly the fixed instructions) and 650 output tokens each. `max_reply_tokens` caps each reply.
 
 What keeps the cost down:
 - **At most one request every 10 seconds** while Claude works, and none between turns or when nothing new has happened.

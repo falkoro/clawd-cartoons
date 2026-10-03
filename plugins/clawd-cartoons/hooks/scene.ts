@@ -201,6 +201,10 @@ export class SceneRunner {
         charge(20)
         c.tag(x, y, label, fg, bg)
       },
+      box: (x: number, y: number, label: unknown, fg?: unknown) => {
+        charge(60)
+        c.box(x, y, label, fg)
+      },
       say: (s: unknown, x = 2, y = 0) => {
         charge(150)
         c.say(s, x, y)

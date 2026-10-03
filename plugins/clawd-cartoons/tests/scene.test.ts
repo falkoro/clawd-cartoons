@@ -110,26 +110,34 @@ test('art paints pixels from a palette, and tag labels things', () => {
   expect(row(c, 2)).toBe('[cart.ts] ')
 })
 
-test('say draws a bubble that types out', () => {
+test('say draws a bubble that types out, and box frames a label', () => {
   const c = new Canvas(30, 4)
   c.say('hi there', 0, 0)
-  expect(row(c, 0)).toMatch(/^╭─+╮/)
+  expect(row(c, 0)).toMatch(/^┌─+┐/)
   expect(row(c, 1)).toMatch(/^│ hi there │/)
-  expect(row(c, 2)).toMatch(/^╰─┬─+╯/)
+  expect(row(c, 2)).toMatch(/^└─+┘/)
   c.clear()
   c.say('hi there', 0, 0, 2)
   expect(row(c, 1)).toMatch(/^│ hi {7}│/)
+  c.clear()
+  c.box(1, 0, 'said')
+  expect([row(c, 0), row(c, 1), row(c, 2)].map((r) => r.slice(1, 9))).toEqual(['┌──────┐', '│ said │', '└──────┘'])
 })
 
-test('the bubble steps aside rather than cover Clawd', () => {
+test('the bubble hangs beside Clawd, level with his head, on the side it points to', () => {
   const c = new Canvas(60, 6)
   c.clawd(4, 2, 1, 0)
-  c.say('hello there', 4, 0)
-  expect(row(c, 1)).toMatch(/^ {19}│ hello there │/)
+  c.say('hello there', 40, 0)
+  expect(row(c, 2).slice(19, 34)).toBe('┌─────────────┐')
+  expect(row(c, 3).slice(18, 34)).toBe('─┤ hello there │') // the tail meets his arm
   c.clear()
   c.clawd(44, 2, 1, 0)
-  c.say('hello there', 44, 0)
-  expect(row(c, 1)).toMatch(/^ {28}│ hello there │ {17}$/)
+  c.say('hello there', 0, 0)
+  expect(row(c, 3).slice(28, 44)).toBe('│ hello there ├─')
+  c.clear()
+  c.clawd(44, 2, 1, 0)
+  c.say('hello there', 50, 0) // no room on the right
+  expect(row(c, 3).slice(28, 44)).toBe('│ hello there ├─')
 })
 
 test('cells encode as the Raster expects', () => {
