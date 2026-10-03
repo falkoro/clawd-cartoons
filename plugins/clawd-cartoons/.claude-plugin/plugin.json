@@ -1,0 +1,55 @@
+{
+  "name": "clawd-cartoons",
+  "version": "0.1.0",
+  "description": "A live cartoon under the spinner: Clawd acts out and narrates each step of the agent's work, drawn by Sonnet and run in a sandboxed scene language",
+  "author": { "name": "falkoro" },
+  "license": "MIT",
+  "repository": "https://github.com/falkoro/clawd-cartoons",
+  "homepage": "https://github.com/falkoro/clawd-cartoons",
+  "keywords": ["mod", "spinner", "cartoon", "fun"],
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Draw cartoons",
+      "description": "Off: the normal spinner, and no model calls",
+      "default": true
+    },
+    "model": {
+      "type": "string",
+      "title": "Model",
+      "description": "The model that draws the scenes (an alias such as sonnet, or a full id)",
+      "default": "claude-sonnet-5-5"
+    },
+    "min_seconds_between_requests": {
+      "type": "number",
+      "title": "Seconds between requests",
+      "description": "The shortest gap between two requests for a new panel; a request goes out after each step of the agent's work, at most this often",
+      "default": 10,
+      "min": 3,
+      "max": 3600
+    },
+    "scene_rows": {
+      "type": "number",
+      "title": "Scene height",
+      "description": "Rows of cartoon under the spinner",
+      "default": 8,
+      "min": 4,
+      "max": 16
+    },
+    "max_reply_tokens": {
+      "type": "number",
+      "title": "Reply token limit",
+      "description": "The most tokens one scene may take",
+      "default": 16000,
+      "min": 1024,
+      "max": 64000
+    },
+    "effort": {
+      "type": "string",
+      "title": "Effort",
+      "description": "How hard the model thinks about each scene",
+      "default": "low",
+      "options": ["low", "medium", "high"]
+    }
+  }
+}
